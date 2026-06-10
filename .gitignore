@@ -1,0 +1,28 @@
+# macOS
+.DS_Store
+
+# Python cache
+__pycache__/
+*.py[cod]
+
+# Local virtual environment kept at the project root
+bin/
+include/
+lib/
+pyvenv.cfg
+
+# Local media inputs/outputs
+sources/
+*.mp4
+*.mov
+*.m4v
+*.avi
+*.mkv
+*.jpg
+*.jpeg
+*.png
+*.webp
+
+# Local secrets/config
+.env
+.env.*
