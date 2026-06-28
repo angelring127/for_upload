@@ -7,6 +7,7 @@ from io import BytesIO
 from collections import Counter
 
 TRAILING_SEPARATOR_CHARS = " \t\r\n\u00a0-–—|"
+KNOWN_FILENAME_PREFIXES = ("hhd800.com@",)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 YUNET_MODEL_PATH = os.path.join(BASE_DIR, "models", "face_detection_yunet_2023mar.onnx")
 ANIME_MODEL_PATH = os.path.join(BASE_DIR, "models", "lbpcascade_animeface.xml")
@@ -63,6 +64,18 @@ def remove_common_suffix(filename, common_suffix):
         stem = stem[:-len(common_suffix)].rstrip(TRAILING_SEPARATOR_CHARS)
     return f"{stem}{ext}"
 
+def remove_known_prefix(filename):
+    stem, ext = os.path.splitext(filename)
+    lowered_stem = stem.lower()
+    for prefix in KNOWN_FILENAME_PREFIXES:
+        if lowered_stem.startswith(prefix.lower()):
+            return f"{stem[len(prefix):]}{ext}"
+    return filename
+
+def clean_video_filename(filename, common_suffix):
+    filename = remove_known_prefix(filename)
+    return remove_common_suffix(filename, common_suffix)
+
 def get_unique_path(directory, filename, original_path=None):
     """既存ファイルを上書きしないリネーム先を作る"""
     target_path = os.path.join(directory, filename)
@@ -76,6 +89,16 @@ def get_unique_path(directory, filename, original_path=None):
         if target_path == original_path or not os.path.exists(target_path):
             return target_path
         index += 1
+
+def find_mp4_files(sources_dir):
+    """Find videos under sources, ignoring the old thumbnail output folders."""
+    mp4_files = []
+    for current_dir, dirnames, filenames in os.walk(sources_dir):
+        dirnames[:] = [dirname for dirname in dirnames if dirname != "thumbnails"]
+        for filename in filenames:
+            if filename.lower().endswith(".mp4"):
+                mp4_files.append(os.path.join(current_dir, filename))
+    return sorted(mp4_files)
 
 def clamp(value, minimum, maximum):
     return max(minimum, min(value, maximum))
@@ -532,16 +555,13 @@ def rename_files(
 ):
     # sourcesディレクトリのパス
     sources_dir = "sources"
-    
-    # サムネイル保存用ディレクトリを作成
-    thumbnails_dir = os.path.join(sources_dir, "thumbnails")
-    os.makedirs(thumbnails_dir, exist_ok=True)
-    
+
     # すべてのmp4ファイルを取得
-    mp4_files = [f for f in os.listdir(sources_dir) if f.lower().endswith('.mp4')]
+    mp4_files = find_mp4_files(sources_dir)
+    mp4_filenames = [os.path.basename(path) for path in mp4_files]
     
     # 共通のsuffixを見つける（5個以上で共通の場合）
-    common_suffix = find_common_suffix(mp4_files, min_count=5)
+    common_suffix = find_common_suffix(mp4_filenames, min_count=5)
     
     if common_suffix:
         print(f"共通のサフィックスが見つかりました: '{common_suffix}'")
@@ -550,12 +570,13 @@ def rename_files(
         print("共通のサフィックスが見つかりませんでした。\n")
     
     # ディレクトリ内のすべてのファイルに対して処理
-    for filename in mp4_files:
-        new_filename = remove_common_suffix(filename, common_suffix)
+    for old_file in mp4_files:
+        filename = os.path.basename(old_file)
+        video_dir = os.path.dirname(old_file)
+        new_filename = clean_video_filename(filename, common_suffix)
         
         # 完全なパスを生成
-        old_file = os.path.join(sources_dir, filename)
-        new_file = get_unique_path(sources_dir, new_filename, original_path=old_file)
+        new_file = get_unique_path(video_dir, new_filename, original_path=old_file)
         new_filename = os.path.basename(new_file)
         
         # ファイル名が変更された場合のみリネーム
@@ -567,8 +588,9 @@ def rename_files(
             print(f"変更なし: {filename}")
         
         # サムネイルを生成
-        thumbnail_name = new_filename.replace('.mp4', '.jpg')
-        thumbnail_path = os.path.join(thumbnails_dir, thumbnail_name)
+        thumbnail_stem, _ = os.path.splitext(new_filename)
+        thumbnail_name = f"{thumbnail_stem}.jpg"
+        thumbnail_path = os.path.join(os.path.dirname(new_file), thumbnail_name)
         if create_thumbnail(
             new_file,
             thumbnail_path,
